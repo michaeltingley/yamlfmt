@@ -123,6 +123,7 @@ func (f *BasicFormatter) getNewEncoder(buf *bytes.Buffer) *yaml.Encoder {
 		e.SetArrayIndent(f.Config.ArrayIndent)
 	}
 	e.SetIndentRootArray(f.Config.IndentRootArray)
+	e.SetAdditiveIndent(f.Config.AdditiveIndent)
 
 	// Yes I know I could SetCorrectAliasKeys(!f.Config.DisableAliasKeyCorrection)
 	// but I know myself and I know I'll get confused and have to go look up

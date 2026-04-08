@@ -735,6 +735,7 @@ type yaml_emitter_t struct {
 	best_indent               int          // The number of indentation spaces.
 	best_array_indent         int          // The number of indentation spaces to use for arrays
 	indent_root_array         bool         // Indent a root-level array as if it were a child?
+	additive_indent           bool         // Add indent to current column instead of snapping to a multiple
 	indentless_block_sequence bool         // Do not indent block sequences
 	unicode                   bool         // Allow unescaped non-ASCII characters?
 	line_break                yaml_break_t // The preferred line break.

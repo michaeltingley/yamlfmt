@@ -294,6 +294,14 @@ func (e *Encoder) SetIndentRootArray(indent_root_array bool) {
 	e.encoder.indent_root_array = indent_root_array
 }
 
+// SetAdditiveIndent changes nested indentation to add the indent step to the
+// current column rather than snapping to the nearest multiple of the step.
+// This matches the layout produced by ruamel.yaml's mapping/sequence/offset
+// model when the offset equals sequence-2.
+func (e *Encoder) SetAdditiveIndent(additive bool) {
+	e.encoder.additive_indent = additive
+}
+
 // SetWidth sets the intended line length.
 func (e *Encoder) SetWidth(width int) {
 	yaml_emitter_set_width(&e.encoder.emitter, width)
