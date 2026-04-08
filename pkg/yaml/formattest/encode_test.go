@@ -113,6 +113,31 @@ func TestAltArrayIndentRoot(t *testing.T) {
 	}.Run(t)
 }
 
+func TestAdditiveIndent(t *testing.T) {
+	formatTestCase{
+		name:             "additive indent",
+		folder:           "additive_indent",
+		configureDecoder: noopDecoder,
+		configureEncoder: func(enc *yaml.Encoder) {
+			enc.SetIndent(4)
+			enc.SetAdditiveIndent(true)
+		},
+	}.Run(t)
+}
+
+func TestAdditiveIndentRoot(t *testing.T) {
+	formatTestCase{
+		name:             "additive indent (root array)",
+		folder:           "additive_indent_root",
+		configureDecoder: noopDecoder,
+		configureEncoder: func(enc *yaml.Encoder) {
+			enc.SetIndent(4)
+			enc.SetAdditiveIndent(true)
+			enc.SetIndentRootArray(true)
+		},
+	}.Run(t)
+}
+
 func TestFrontMatter(t *testing.T) {
 	formatTestCase{
 		name:             "frontmatter",

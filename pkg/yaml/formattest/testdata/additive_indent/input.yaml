@@ -1,0 +1,14 @@
+steps:
+    - label: foo
+      agents:
+          queue: pool
+          cluster: argon
+      command:
+          - one
+          - two
+    - label: bar
+      nested:
+          - key: val
+            list:
+                - a
+                - b
