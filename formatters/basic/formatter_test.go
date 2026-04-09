@@ -341,6 +341,19 @@ x:
 `,
 		},
 		{
+			// Trailing whitespace on a content line makes the emitter fall
+			// back to a double-quoted scalar; the placeholder must not leak
+			// into the quoted string. See google/yamlfmt#280.
+			name: "literal string forced to quoted",
+			input: "script: |\n" +
+				"    when {\n" +
+				"        deep\n" +
+				"    }; \n" + // note trailing space
+				"\n" +
+				"    permit();\n",
+			expect: "script: \"when {\\n    deep\\n}; \\n\\npermit();\\n\"\n",
+		},
+		{
 			name:   "retain single line break",
 			single: true,
 			input: `a: 1

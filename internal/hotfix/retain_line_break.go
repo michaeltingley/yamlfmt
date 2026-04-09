@@ -21,9 +21,25 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"regexp"
 	"strings"
 
 	"github.com/google/yamlfmt"
+)
+
+// Placeholders can survive into the emitter output when a block scalar that
+// contained a blank line is re-emitted as a flow scalar (the line-based scan
+// in restoreLineBreakFeature then can't see them). Two shapes occur:
+//   - double-quoted: `...\n   #magic...\n...` — restore the blank line by
+//     collapsing to `\n` (the following `\n` is already present);
+//   - single-quoted / plain folded: `... #magic... next` — the emitter has
+//     already folded the surrounding newlines to spaces, so just drop the
+//     marker and normalise to a single space.
+//
+// See google/yamlfmt#280.
+var (
+	quotedPlaceholderRe = regexp.MustCompile(`\\n *` + regexp.QuoteMeta(lineBreakPlaceholder))
+	foldedPlaceholderRe = regexp.MustCompile(` *` + regexp.QuoteMeta(lineBreakPlaceholder) + ` *`)
 )
 
 const lineBreakPlaceholder = "#magic___^_^___line"
@@ -37,8 +53,15 @@ func (p *paddinger) adjust(txt string) {
 	for i := 0; i < len(txt) && txt[i] == ' '; i++ { // yaml only allows space to indent.
 		indentSize++
 	}
-	// Grows if the given size is larger than us and always return the max padding.
-	for diff := indentSize - p.Len(); diff > 0; diff-- {
+	// Track the indent of the most recent line, not the max ever seen: a
+	// grow-only padding over-indents the placeholder after any deeper-nested
+	// line, which inside a block scalar becomes leading-whitespace content and
+	// can force the emitter to a quoted style. See google/yamlfmt#280.
+	if indentSize == p.Len() {
+		return
+	}
+	p.Reset()
+	for i := 0; i < indentSize; i++ {
 		p.WriteByte(' ')
 	}
 }
@@ -60,7 +83,6 @@ func replaceLineBreakFeature(newlineStr string, chomp bool) yamlfmt.FeatureFunc 
 		var padding paddinger
 		for scanner.Scan() {
 			txt := scanner.Text()
-			padding.adjust(txt)
 			if strings.TrimSpace(txt) == "" { // line break or empty space line.
 				if chomp && inLineBreaks {
 					continue
@@ -70,6 +92,7 @@ func replaceLineBreakFeature(newlineStr string, chomp bool) yamlfmt.FeatureFunc 
 				buf.WriteString(newlineStr)
 				inLineBreaks = true
 			} else {
+				padding.adjust(txt)
 				buf.WriteString(txt)
 				buf.WriteString(newlineStr)
 				inLineBreaks = false
@@ -95,6 +118,12 @@ func restoreLineBreakFeature(newlineStr string) yamlfmt.FeatureFunc {
 			if strings.HasPrefix(strings.TrimLeft(txt, " "), lineBreakPlaceholder) {
 				buf.WriteString(newlineStr)
 				continue
+			}
+			if strings.Contains(txt, lineBreakPlaceholder) {
+				// Placeholder survived inside a flow/quoted scalar on this
+				// line; strip it without leaking the sentinel into output.
+				txt = quotedPlaceholderRe.ReplaceAllString(txt, `\n`)
+				txt = foldedPlaceholderRe.ReplaceAllString(txt, " ")
 			}
 			buf.WriteString(txt)
 			buf.WriteString(newlineStr)
