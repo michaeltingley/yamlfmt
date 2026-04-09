@@ -1,8 +1,8 @@
 steps:
     - label: foo
       agents:
-          queue: pool
-          cluster: argon
+          queue: default
+          cluster: example
       command:
           - one
           - two

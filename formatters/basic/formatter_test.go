@@ -408,6 +408,29 @@ c: 3
 	}
 }
 
+func TestRetainLineBreaksPlaceholderStrippedFromFlowScalar(t *testing.T) {
+	// With force_array_style=flow, a | block scalar inside an array becomes a
+	// double-quoted flow scalar. The retain_line_breaks placeholder ends up
+	// embedded mid-string (not on its own line), so the line-based strip
+	// can't reach it; the regex post-processing in restoreLineBreakFeature
+	// must. This is the remaining path for the regex after google/yamlfmt#86
+	// stopped trailing-space content from forcing flow.
+	f, err := factory.NewFormatter(map[string]any{
+		"retain_line_breaks": true,
+		"force_array_style":  "flow",
+	})
+	require.NoError(t, err)
+	in := "items:\n" +
+		"  - |\n" +
+		"    line1\n" +
+		"\n" +
+		"    line2\n"
+	got, err := f.Format([]byte(in))
+	require.NoError(t, err)
+	require.NotContains(t, string(got), "magic___", "placeholder leaked into output")
+	require.Equal(t, `items: ["line1\n\nline2\n"]`+"\n", string(got))
+}
+
 func stripTrailingNewline(s string) string {
 	// strip trailing \n or \r\n characters
 	if len(s) > 0 {
