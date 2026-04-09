@@ -83,12 +83,27 @@ func replaceLineBreakFeature(newlineStr string, chomp bool) yamlfmt.FeatureFunc 
 		var padding paddinger
 		for scanner.Scan() {
 			txt := scanner.Text()
-			if strings.TrimSpace(txt) == "" { // line break or empty space line.
+			if txt == "" {
 				if chomp && inLineBreaks {
 					continue
 				}
 				buf.WriteString(padding.String()) // prepend some padding incase literal multiline strings.
 				buf.WriteString(lineBreakPlaceholder)
+				buf.WriteString(newlineStr)
+				inLineBreaks = true
+			} else if strings.TrimSpace(txt) == "" {
+				// Whitespace-only line. Inside a literal block scalar this is
+				// content (google/yamlfmt#86) and the encoder preserves it
+				// natively, so pass it through untouched rather than
+				// placeholder-replacing it (which would lose the whitespace).
+				// Between mapping keys such a line is semantically blank; the
+				// encoder will drop it, so this trades losing the rare
+				// whitespace-only structural blank for never corrupting block
+				// scalar content.
+				if chomp && inLineBreaks {
+					continue
+				}
+				buf.WriteString(txt)
 				buf.WriteString(newlineStr)
 				inLineBreaks = true
 			} else {
@@ -109,10 +124,13 @@ func restoreLineBreakFeature(newlineStr string) yamlfmt.FeatureFunc {
 		scanner := bufio.NewScanner(reader)
 		for scanner.Scan() {
 			txt := scanner.Text()
-			if strings.TrimSpace(txt) == "" {
+			if txt == "" {
 				// The basic yaml lib inserts newline when there is a comment(either placeholder or by user)
 				// followed by optional line breaks and a `---` multi-documents.
 				// To fix it, the empty line could only be inserted by us.
+				// Whitespace-only lines are kept: the encoder only produces
+				// those as literal-block-scalar content, which must round-trip
+				// (google/yamlfmt#86).
 				continue
 			}
 			if strings.HasPrefix(strings.TrimLeft(txt, " "), lineBreakPlaceholder) {

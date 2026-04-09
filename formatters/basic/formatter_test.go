@@ -341,17 +341,41 @@ x:
 `,
 		},
 		{
-			// Trailing whitespace on a content line makes the emitter fall
-			// back to a double-quoted scalar; the placeholder must not leak
-			// into the quoted string. See google/yamlfmt#280.
-			name: "literal string forced to quoted",
+			// Trailing whitespace on a content line used to force the emitter
+			// to fall back to a double-quoted scalar (google/yamlfmt#86). Block
+			// style is now preserved (the space_break heuristic no longer
+			// disqualifies it), so the trailing space and the blank line both
+			// survive in literal form. This also covers google/yamlfmt#280:
+			// the retain_line_breaks placeholder would previously leak into
+			// the quoted output here.
+			name: "literal string with trailing space stays literal",
 			input: "script: |\n" +
 				"    when {\n" +
 				"        deep\n" +
 				"    }; \n" + // note trailing space
 				"\n" +
 				"    permit();\n",
-			expect: "script: \"when {\\n    deep\\n}; \\n\\npermit();\\n\"\n",
+			expect: "script: |\n" +
+				"  when {\n" +
+				"      deep\n" +
+				"  }; \n" + // trailing space preserved
+				"\n" +
+				"  permit();\n",
+		},
+		{
+			// A whitespace-only line inside a literal block scalar whose
+			// width exceeds the block indent is content, not a blank line
+			// (google/yamlfmt#86). The placeholder mechanism must round-trip
+			// that content rather than collapsing it to an empty line.
+			name: "literal string with whitespace-only content line",
+			input: "script: |\n" +
+				"  echo a\n" +
+				"    \n" + // 4sp on a 2-indent block: content is "  "
+				"  echo b\n",
+			expect: "script: |\n" +
+				"  echo a\n" +
+				"    \n" +
+				"  echo b\n",
 		},
 		{
 			name:   "retain single line break",

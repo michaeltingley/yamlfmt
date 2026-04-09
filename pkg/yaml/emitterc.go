@@ -1432,7 +1432,12 @@ func yaml_emitter_analyze_scalar(emitter *yaml_emitter_t, value []byte) bool {
 		emitter.scalar_data.block_plain_allowed = false
 		emitter.scalar_data.single_quoted_allowed = false
 	}
-	if space_break || special_characters {
+	// Literal block scalars (|) preserve all content including trailing
+	// whitespace before newlines (YAML 1.2 §8.1.3), so space_break alone
+	// shouldn't disqualify block style. Dropping it here lets values that
+	// contain trailing-space lines or whitespace-only lines stay in | form
+	// instead of being forced to double-quoted (google/yamlfmt#86).
+	if special_characters {
 		emitter.scalar_data.block_allowed = false
 	}
 	if line_breaks {
