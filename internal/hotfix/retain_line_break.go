@@ -37,6 +37,14 @@ import (
 
 const lineBreakPlaceholder = "#magic___^_^___line"
 
+// ctxInputHadProtectedBlank carries whether the BeforeAction passed through
+// any blank line as scalar content. When false, the encoder output cannot
+// contain blank lines that are scalar content (the encoder preserves scalar
+// style, so a single-line input scalar stays single-line in output, and no
+// blank-in-scalar was carried through from a multi-line one), and the
+// AfterAction can skip its own scan.
+type ctxInputHadProtectedBlank struct{}
+
 // scalarContentLines returns the set of 0-indexed line numbers that fall
 // strictly inside a multi-line scalar token in src. "Strictly inside" is the
 // open interval (start_mark.line, end_mark.line): the start line carries the
@@ -87,8 +95,9 @@ func MakeFeatureRetainLineBreak(linebreakStr string, chomp bool) yamlfmt.Feature
 }
 
 func replaceLineBreakFeature(newlineStr string, chomp bool) yamlfmt.FeatureFunc {
-	return func(_ context.Context, content []byte) (context.Context, []byte, error) {
+	return func(ctx context.Context, content []byte) (context.Context, []byte, error) {
 		inScalar := scalarContentLines(content)
+		var hadProtectedBlank bool
 		var buf bytes.Buffer
 		scanner := bufio.NewScanner(bytes.NewReader(content))
 		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
@@ -105,6 +114,7 @@ func replaceLineBreakFeature(newlineStr string, chomp bool) yamlfmt.FeatureFunc 
 					// pass through verbatim so the decoder sees the original
 					// value. The encoder preserves it natively. This is not a
 					// structural blank, so leave the chomp state untouched.
+					hadProtectedBlank = true
 					buf.WriteString(txt)
 					buf.WriteString(newlineStr)
 					continue
@@ -123,13 +133,24 @@ func replaceLineBreakFeature(newlineStr string, chomp bool) yamlfmt.FeatureFunc 
 			buf.WriteString(newlineStr)
 			inLineBreaks = false
 		}
-		return nil, buf.Bytes(), scanner.Err()
+		ctx = context.WithValue(ctx, ctxInputHadProtectedBlank{}, hadProtectedBlank)
+		return ctx, buf.Bytes(), scanner.Err()
 	}
 }
 
 func restoreLineBreakFeature(newlineStr string) yamlfmt.FeatureFunc {
-	return func(_ context.Context, content []byte) (context.Context, []byte, error) {
-		inScalar := scalarContentLines(content)
+	return func(ctx context.Context, content []byte) (context.Context, []byte, error) {
+		// The output-side scan is only needed when the BeforeAction passed a
+		// blank line through as scalar content: that's the only way the
+		// encoder output can have a blank line that is scalar content rather
+		// than structure (the encoder preserves scalar style, so it does not
+		// introduce blank-in-scalar from a value that didn't carry one in).
+		// When BeforeAction never took that branch, fall through with a nil
+		// map (every lookup misses), matching the original v0.21.0 fast path.
+		var inScalar map[int]struct{}
+		if had, _ := ctx.Value(ctxInputHadProtectedBlank{}).(bool); had {
+			inScalar = scalarContentLines(content)
+		}
 		var buf bytes.Buffer
 		scanner := bufio.NewScanner(bytes.NewReader(content))
 		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
