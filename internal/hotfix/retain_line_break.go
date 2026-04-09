@@ -14,6 +14,14 @@
 
 // The features in this file are to retain line breaks.
 // The basic idea is to insert/remove placeholder comments in the yaml document before and after the format process.
+//
+// A blank line inside a multi-line scalar (|, >, "...", '...', or plain) is
+// content, not structural whitespace. The original implementation inserted the
+// placeholder for every blank line, which corrupted such scalars
+// (google/yamlfmt#280, #86). To avoid that, both actions first run the YAML
+// scanner over their input and skip the rewrite for any line that falls inside
+// a multi-line scalar token. The scanner is authoritative, so this covers all
+// scalar styles without lexical heuristics.
 
 package hotfix
 
@@ -21,28 +29,32 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"regexp"
 	"strings"
 
 	"github.com/google/yamlfmt"
-)
-
-// Placeholders can survive into the emitter output when a block scalar that
-// contained a blank line is re-emitted as a flow scalar (the line-based scan
-// in restoreLineBreakFeature then can't see them). Two shapes occur:
-//   - double-quoted: `...\n   #magic...\n...` — restore the blank line by
-//     collapsing to `\n` (the following `\n` is already present);
-//   - single-quoted / plain folded: `... #magic... next` — the emitter has
-//     already folded the surrounding newlines to spaces, so just drop the
-//     marker and normalise to a single space.
-//
-// See google/yamlfmt#280.
-var (
-	quotedPlaceholderRe = regexp.MustCompile(`\\n *` + regexp.QuoteMeta(lineBreakPlaceholder))
-	foldedPlaceholderRe = regexp.MustCompile(` *` + regexp.QuoteMeta(lineBreakPlaceholder) + ` *`)
+	"github.com/google/yamlfmt/pkg/yaml"
 )
 
 const lineBreakPlaceholder = "#magic___^_^___line"
+
+// scalarContentLines returns the set of 0-indexed line numbers that fall
+// strictly inside a multi-line scalar token in src. "Strictly inside" is the
+// open interval (start_mark.line, end_mark.line): the start line carries the
+// scalar's opening syntax (`|`, `>`, opening quote, or first plain word) and
+// the end line is either the closing quote / last plain word or, for block
+// scalars, the first line after the scanner finished consuming trailing
+// breaks. Neither boundary line is itself a wholly-blank content line, so the
+// open interval is exactly the set of lines whose blankness is scalar content
+// rather than structure.
+func scalarContentLines(src []byte) map[int]struct{} {
+	in := make(map[int]struct{})
+	for _, r := range yaml.ScanMultilineScalarRanges(src) {
+		for l := r.StartLine + 1; l < r.EndLine; l++ {
+			in[l] = struct{}{}
+		}
+	}
+	return in
+}
 
 type paddinger struct {
 	strings.Builder
@@ -76,42 +88,40 @@ func MakeFeatureRetainLineBreak(linebreakStr string, chomp bool) yamlfmt.Feature
 
 func replaceLineBreakFeature(newlineStr string, chomp bool) yamlfmt.FeatureFunc {
 	return func(_ context.Context, content []byte) (context.Context, []byte, error) {
+		inScalar := scalarContentLines(content)
 		var buf bytes.Buffer
-		reader := bytes.NewReader(content)
-		scanner := bufio.NewScanner(reader)
+		scanner := bufio.NewScanner(bytes.NewReader(content))
+		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+		var lineNo int
 		var inLineBreaks bool
 		var padding paddinger
 		for scanner.Scan() {
 			txt := scanner.Text()
-			if txt == "" {
+			_, protected := inScalar[lineNo]
+			lineNo++
+			if strings.TrimRight(txt, " \t") == "" {
+				if protected {
+					// Blank (or whitespace-only) line that is scalar content:
+					// pass through verbatim so the decoder sees the original
+					// value. The encoder preserves it natively. This is not a
+					// structural blank, so leave the chomp state untouched.
+					buf.WriteString(txt)
+					buf.WriteString(newlineStr)
+					continue
+				}
 				if chomp && inLineBreaks {
 					continue
 				}
-				buf.WriteString(padding.String()) // prepend some padding incase literal multiline strings.
+				buf.WriteString(padding.String())
 				buf.WriteString(lineBreakPlaceholder)
 				buf.WriteString(newlineStr)
 				inLineBreaks = true
-			} else if strings.TrimSpace(txt) == "" {
-				// Whitespace-only line. Inside a literal block scalar this is
-				// content (google/yamlfmt#86) and the encoder preserves it
-				// natively, so pass it through untouched rather than
-				// placeholder-replacing it (which would lose the whitespace).
-				// Between mapping keys such a line is semantically blank; the
-				// encoder will drop it, so this trades losing the rare
-				// whitespace-only structural blank for never corrupting block
-				// scalar content.
-				if chomp && inLineBreaks {
-					continue
-				}
-				buf.WriteString(txt)
-				buf.WriteString(newlineStr)
-				inLineBreaks = true
-			} else {
-				padding.adjust(txt)
-				buf.WriteString(txt)
-				buf.WriteString(newlineStr)
-				inLineBreaks = false
+				continue
 			}
+			padding.adjust(txt)
+			buf.WriteString(txt)
+			buf.WriteString(newlineStr)
+			inLineBreaks = false
 		}
 		return nil, buf.Bytes(), scanner.Err()
 	}
@@ -119,29 +129,37 @@ func replaceLineBreakFeature(newlineStr string, chomp bool) yamlfmt.FeatureFunc 
 
 func restoreLineBreakFeature(newlineStr string) yamlfmt.FeatureFunc {
 	return func(_ context.Context, content []byte) (context.Context, []byte, error) {
+		inScalar := scalarContentLines(content)
 		var buf bytes.Buffer
-		reader := bytes.NewReader(content)
-		scanner := bufio.NewScanner(reader)
+		scanner := bufio.NewScanner(bytes.NewReader(content))
+		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+		var lineNo int
 		for scanner.Scan() {
 			txt := scanner.Text()
+			_, protected := inScalar[lineNo]
+			lineNo++
 			if txt == "" {
-				// The basic yaml lib inserts newline when there is a comment(either placeholder or by user)
-				// followed by optional line breaks and a `---` multi-documents.
-				// To fix it, the empty line could only be inserted by us.
-				// Whitespace-only lines are kept: the encoder only produces
-				// those as literal-block-scalar content, which must round-trip
-				// (google/yamlfmt#86).
+				if protected {
+					buf.WriteString(newlineStr)
+					continue
+				}
+				// Structural blank in encoder output that we did not request
+				// via a placeholder: drop it (matches the original hotfix's
+				// handling of the comment-before-`---` quirk).
 				continue
 			}
 			if strings.HasPrefix(strings.TrimLeft(txt, " "), lineBreakPlaceholder) {
+				if protected {
+					// The placeholder text appears inside a scalar in the
+					// output. The BeforeAction never inserts placeholders into
+					// scalar content, so this can only be literal user content
+					// that happens to match the sentinel. Round-trip it.
+					buf.WriteString(txt)
+					buf.WriteString(newlineStr)
+					continue
+				}
 				buf.WriteString(newlineStr)
 				continue
-			}
-			if strings.Contains(txt, lineBreakPlaceholder) {
-				// Placeholder survived inside a flow/quoted scalar on this
-				// line; strip it without leaking the sentinel into output.
-				txt = quotedPlaceholderRe.ReplaceAllString(txt, `\n`)
-				txt = foldedPlaceholderRe.ReplaceAllString(txt, " ")
 			}
 			buf.WriteString(txt)
 			buf.WriteString(newlineStr)

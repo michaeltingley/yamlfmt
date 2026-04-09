@@ -393,6 +393,67 @@ b: 2
 c: 3
 `,
 		},
+		{
+			// A blank line inside a > folded scalar is a paragraph break and
+			// part of the scalar's value (YAML §8.1.3). The placeholder must
+			// not be inserted there.
+			name: "folded scalar blank line is content",
+			input: "text: >\n" +
+				"  para1\n" +
+				"\n" +
+				"  para2\n",
+			expect: "text: >\n" +
+				"  para1\n" +
+				"\n" +
+				"  para2\n" +
+				"\n",
+		},
+		{
+			// A source-level blank line inside a multi-line "..." scalar
+			// encodes a single \n in the value (YAML §7.3.1). The encoder
+			// re-emits the value as a single-line double-quoted scalar with an
+			// explicit \n; the round-tripped value must be unchanged.
+			name: "double-quoted scalar blank line is content",
+			input: "msg: \"line1\n" +
+				"\n" +
+				"  line2\"\n",
+			expect: "msg: \"line1\\nline2\"\n",
+		},
+		{
+			// Same for single-quoted; the encoder happens to keep the
+			// multi-line layout, including the content blank.
+			name: "single-quoted scalar blank line is content",
+			input: "msg: 'line1\n" +
+				"\n" +
+				"  line2'\n",
+			expect: "msg: 'line1\n" +
+				"\n" +
+				"  line2'\n",
+		},
+		{
+			// retain_line_breaks_single chomps consecutive structural blanks
+			// to one, but blank lines inside a literal scalar are content and
+			// must not be chomped.
+			name:   "chomp leaves scalar-content blanks alone",
+			single: true,
+			input: "script: |\n" +
+				"  a\n" +
+				"\n" +
+				"\n" +
+				"  b\n" +
+				"x: 1\n" +
+				"\n" +
+				"\n" +
+				"y: 2\n",
+			expect: "script: |\n" +
+				"  a\n" +
+				"\n" +
+				"\n" +
+				"  b\n" +
+				"x: 1\n" +
+				"\n" +
+				"y: 2\n",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -408,13 +469,12 @@ c: 3
 	}
 }
 
-func TestRetainLineBreaksPlaceholderStrippedFromFlowScalar(t *testing.T) {
-	// With force_array_style=flow, a | block scalar inside an array becomes a
-	// double-quoted flow scalar. The retain_line_breaks placeholder ends up
-	// embedded mid-string (not on its own line), so the line-based strip
-	// can't reach it; the regex post-processing in restoreLineBreakFeature
-	// must. This is the remaining path for the regex after google/yamlfmt#86
-	// stopped trailing-space content from forcing flow.
+func TestRetainLineBreaksFlowRestyledScalar(t *testing.T) {
+	// With force_array_style=flow, a | block scalar inside an array is
+	// re-emitted as a double-quoted flow scalar. The retain_line_breaks hotfix
+	// skips placeholder insertion for blank lines inside the input scalar (the
+	// scanner marks them as content), so no placeholder reaches the encoder and
+	// none can leak into the restyled output.
 	f, err := factory.NewFormatter(map[string]any{
 		"retain_line_breaks": true,
 		"force_array_style":  "flow",
