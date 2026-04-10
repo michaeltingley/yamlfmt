@@ -64,26 +64,15 @@ func scalarContentLines(src []byte) map[int]struct{} {
 	return in
 }
 
-type paddinger struct {
-	strings.Builder
-}
-
-func (p *paddinger) adjust(txt string) {
-	var indentSize int
-	for i := 0; i < len(txt) && txt[i] == ' '; i++ { // yaml only allows space to indent.
-		indentSize++
+// indentOf returns the leading-space prefix of txt. YAML only allows spaces
+// for indentation, so tabs are not considered.
+func indentOf(txt string) string {
+	for i := 0; i < len(txt); i++ {
+		if txt[i] != ' ' {
+			return txt[:i]
+		}
 	}
-	// Track the indent of the most recent line, not the max ever seen: a
-	// grow-only padding over-indents the placeholder after any deeper-nested
-	// line, which inside a block scalar becomes leading-whitespace content and
-	// can force the emitter to a quoted style. See google/yamlfmt#280.
-	if indentSize == p.Len() {
-		return
-	}
-	p.Reset()
-	for i := 0; i < indentSize; i++ {
-		p.WriteByte(' ')
-	}
+	return txt
 }
 
 func MakeFeatureRetainLineBreak(linebreakStr string, chomp bool) yamlfmt.Feature {
@@ -102,8 +91,23 @@ func replaceLineBreakFeature(newlineStr string, chomp bool) yamlfmt.FeatureFunc 
 		scanner := bufio.NewScanner(bytes.NewReader(content))
 		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 		var lineNo int
-		var inLineBreaks bool
-		var padding paddinger
+		// Placeholders are written at the indent of the line that *follows*
+		// the blank run, not the line that precedes it. The scanner uses
+		// comment indentation to decide attachment, so a placeholder at the
+		// previous line's (deeper) indent splits it from a less-indented
+		// comment block that follows, attaching that block to the next node
+		// instead. The mismatched column then re-attaches differently on the
+		// next pass, so formatting only converges after a second run.
+		// Matching the following line keeps placeholder + following content as
+		// one unit and the placeholder transparent to attachment.
+		var pendingPlaceholders int
+		flushPlaceholders := func(indent string) {
+			for ; pendingPlaceholders > 0; pendingPlaceholders-- {
+				buf.WriteString(indent)
+				buf.WriteString(lineBreakPlaceholder)
+				buf.WriteString(newlineStr)
+			}
+		}
 		for scanner.Scan() {
 			txt := scanner.Text()
 			_, protected := inScalar[lineNo]
@@ -113,26 +117,26 @@ func replaceLineBreakFeature(newlineStr string, chomp bool) yamlfmt.FeatureFunc 
 					// Blank (or whitespace-only) line that is scalar content:
 					// pass through verbatim so the decoder sees the original
 					// value. The encoder preserves it natively. This is not a
-					// structural blank, so leave the chomp state untouched.
+					// structural blank, so don't count it as pending.
 					hadProtectedBlank = true
 					buf.WriteString(txt)
 					buf.WriteString(newlineStr)
 					continue
 				}
-				if chomp && inLineBreaks {
+				if chomp && pendingPlaceholders > 0 {
 					continue
 				}
-				buf.WriteString(padding.String())
-				buf.WriteString(lineBreakPlaceholder)
-				buf.WriteString(newlineStr)
-				inLineBreaks = true
+				pendingPlaceholders++
 				continue
 			}
-			padding.adjust(txt)
+			flushPlaceholders(indentOf(txt))
 			buf.WriteString(txt)
 			buf.WriteString(newlineStr)
-			inLineBreaks = false
 		}
+		// Trailing structural blanks have no following line; column zero is
+		// transparent (anything outdented attaches at document scope, same as
+		// the original blank).
+		flushPlaceholders("")
 		ctx = context.WithValue(ctx, ctxInputHadProtectedBlank{}, hadProtectedBlank)
 		return ctx, buf.Bytes(), scanner.Err()
 	}

@@ -454,6 +454,27 @@ c: 3
 				"\n" +
 				"y: 2\n",
 		},
+		{
+			// A blank line between a sequence item and a less-indented
+			// comment block. The placeholder must be inserted at the indent
+			// of the *following* line: if it took the previous line's
+			// (deeper) indent, the scanner would split it from the comment
+			// block, attaching the comment to the next item instead and
+			// emitting it at a different column. The mismatched column
+			// reattaches differently on the next pass, so formatting would
+			// only converge after a second run.
+			name: "outdented comment after blank between sequence items",
+			input: "items:\n" +
+				"  - path: a\n" +
+				"\n" +
+				"# comment\n" +
+				"  - path: b\n",
+			expect: "items:\n" +
+				"  - path: a\n" +
+				"\n" +
+				"    # comment\n" +
+				"  - path: b\n",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -465,6 +486,9 @@ c: 3
 			got, err := f.Format([]byte(tc.input))
 			require.NoError(t, err)
 			require.Equal(t, tc.expect, string(got))
+			again, err := f.Format(got)
+			require.NoError(t, err)
+			require.Equal(t, string(got), string(again), "formatting is not idempotent")
 		})
 	}
 }
