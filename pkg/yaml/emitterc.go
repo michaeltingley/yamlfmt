@@ -240,11 +240,19 @@ func yaml_emitter_increase_indent(emitter *yaml_emitter_t, flow, indentless bool
 		if emitter.states[len(emitter.states)-1] == yaml_EMIT_BLOCK_SEQUENCE_ITEM_STATE {
 			emitter.indent += 2
 		} else if emitter.state == yaml_EMIT_BLOCK_SEQUENCE_FIRST_ITEM_STATE {
-			// [Go] Arrays align to the chosen indentation.
-			emitter.indent = emitter.best_array_indent * ((emitter.indent + emitter.best_array_indent) / emitter.best_array_indent)
+			if emitter.additive_indent {
+				emitter.indent += emitter.best_array_indent
+			} else {
+				// [Go] Arrays align to the chosen indentation.
+				emitter.indent = emitter.best_array_indent * ((emitter.indent + emitter.best_array_indent) / emitter.best_array_indent)
+			}
 		} else {
-			// Everything else aligns to the chosen indentation.
-			emitter.indent = emitter.best_indent * ((emitter.indent + emitter.best_indent) / emitter.best_indent)
+			if emitter.additive_indent {
+				emitter.indent += emitter.best_indent
+			} else {
+				// Everything else aligns to the chosen indentation.
+				emitter.indent = emitter.best_indent * ((emitter.indent + emitter.best_indent) / emitter.best_indent)
+			}
 		}
 	} else {
 		if emitter.states[len(emitter.states)-1] == yaml_EMIT_BLOCK_SEQUENCE_ITEM_STATE {
@@ -1424,7 +1432,15 @@ func yaml_emitter_analyze_scalar(emitter *yaml_emitter_t, value []byte) bool {
 		emitter.scalar_data.block_plain_allowed = false
 		emitter.scalar_data.single_quoted_allowed = false
 	}
-	if space_break || special_characters {
+	// Block scalars preserve content including trailing whitespace before
+	// newlines (YAML 1.2 §8.1.2 literal, §8.1.3 folded), so space_break alone
+	// shouldn't disqualify block style. Dropping it here lets values that
+	// contain trailing-space lines or whitespace-only lines stay in | or >
+	// form instead of being forced to double-quoted (google/yamlfmt#86).
+	// block_allowed gates both | and >; both round-trip such content to the
+	// original input's spec value (verified for > under scan_folded_as_literal
+	// too — the prior double-quoted fallback was the case that drifted).
+	if special_characters {
 		emitter.scalar_data.block_allowed = false
 	}
 	if line_breaks {

@@ -36,6 +36,7 @@ type encoder struct {
 	indent            int
 	array_indent      int
 	indent_root_array bool
+	additive_indent   bool
 	doneInit          bool
 	optDropMergeTag   bool
 }
@@ -71,6 +72,7 @@ func (e *encoder) init() {
 	e.emitter.best_indent = e.indent
 	e.emitter.best_array_indent = e.array_indent
 	e.emitter.indent_root_array = e.indent_root_array
+	e.emitter.additive_indent = e.additive_indent
 	yaml_stream_start_event_initialize(&e.event, yaml_UTF8_ENCODING)
 	e.emit()
 	e.doneInit = true

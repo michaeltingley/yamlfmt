@@ -1,0 +1,14 @@
+steps:
+    - label: foo
+      agents:
+          queue: default
+          cluster: example
+      command:
+          - one
+          - two
+    - label: bar
+      nested:
+          - key: val
+            list:
+                - a
+                - b

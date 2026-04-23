@@ -93,6 +93,7 @@ The `basic` formatter is the default formatter that takes the data provided, ser
 | `strip_directives`          | bool           | false   | [YAML Directives](https://yaml.org/spec/1.2.2/#3234-directives) are not supported by this formatter. This feature will attempt to strip the directives before formatting and put them back. [Use this feature at your own risk.](#strip_directives) |
 | `array_indent`              | int            | = indent | Set a different indentation level for block sequences specifically. |
 | `indent_root_array`         | bool           | false   | Tells the formatter to indent an array that is at the lowest indentation level of the document. |
+| `additive_indent`           | bool           | false   | Compute nested indentation by adding the indent step to the current column instead of snapping to the nearest multiple. Matches the layout produced by ruamel.yaml's `mapping`/`sequence`/`offset` model when `sequence - offset == 2`. See #142. |
 | `disable_alias_key_correction` | bool        | false   | Disables functionality to fix alias nodes being used as keys. See #247 for details. |
 | `force_array_style`         | `flow`, `block`, or empty | empty   | If set, forces arrays to be output in a particular style, either `flow` (`[]`) or `block` (`- x`). If unset, the style from the original document is used. |
 | `force_quote_style`         | `single`, `double`, or empty | empty   | If set, forces all nodes with quotes into either single `'` or double `"` quotes. |

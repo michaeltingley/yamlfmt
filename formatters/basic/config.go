@@ -38,6 +38,7 @@ type Config struct {
 	StripDirectives           bool                       `mapstructure:"strip_directives"`
 	ArrayIndent               int                        `mapstructure:"array_indent"`
 	IndentRootArray           bool                       `mapstructure:"indent_root_array"`
+	AdditiveIndent            bool                       `mapstructure:"additive_indent"`
 	DisableAliasKeyCorrection bool                       `mapstructure:"disable_alias_key_correction"`
 	ForceArrayStyle           yamlFeatures.SequenceStyle `mapstructure:"force_array_style"`
 	ForceQuoteStyle           yamlFeatures.QuoteStyle    `mapstructure:"force_quote_style"`

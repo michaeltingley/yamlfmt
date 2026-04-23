@@ -53,6 +53,20 @@ func TestIndentedToIndentless(t *testing.T) {
 	}.Run(t)
 }
 
+func TestLiteralBlockTrailingSpace(t *testing.T) {
+	// Literal block scalars (|) preserve all content including trailing
+	// whitespace and whitespace-only interior lines (YAML 1.2 §8.1.3).
+	// The encoder previously forced these to double-quoted via the
+	// space_break heuristic (google/yamlfmt#86); they should now round-trip
+	// in literal form.
+	formatTestCase{
+		name:             "literal block trailing space round-trips",
+		folder:           "literal_block_trailing_space",
+		configureDecoder: noopDecoder,
+		configureEncoder: noopEncoder,
+	}.Run(t)
+}
+
 func TestBlockScalar(t *testing.T) {
 	formatTestCase{
 		name:   "block scalar decoding and encoding",
@@ -108,6 +122,31 @@ func TestAltArrayIndentRoot(t *testing.T) {
 		configureEncoder: func(enc *yaml.Encoder) {
 			enc.SetIndent(4)
 			enc.SetArrayIndent(2)
+			enc.SetIndentRootArray(true)
+		},
+	}.Run(t)
+}
+
+func TestAdditiveIndent(t *testing.T) {
+	formatTestCase{
+		name:             "additive indent",
+		folder:           "additive_indent",
+		configureDecoder: noopDecoder,
+		configureEncoder: func(enc *yaml.Encoder) {
+			enc.SetIndent(4)
+			enc.SetAdditiveIndent(true)
+		},
+	}.Run(t)
+}
+
+func TestAdditiveIndentRoot(t *testing.T) {
+	formatTestCase{
+		name:             "additive indent (root array)",
+		folder:           "additive_indent_root",
+		configureDecoder: noopDecoder,
+		configureEncoder: func(enc *yaml.Encoder) {
+			enc.SetIndent(4)
+			enc.SetAdditiveIndent(true)
 			enc.SetIndentRootArray(true)
 		},
 	}.Run(t)
